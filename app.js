@@ -46,6 +46,7 @@ class AuthSystem {
     }
 
     logout() {
+        
         this.currentOperator = null;
         this.saveCurrentOperator(null);
     }
@@ -418,6 +419,9 @@ function showPage(pageName) {
         updateReports();
     } else if (pageName === 'billing') {
         renderInvoices();
+    } else if (pageName === 'history') {
+        renderHistory();
+        populateHistoryFilters();
     }
 }
 
@@ -454,7 +458,6 @@ function initCustomerManagement() {
         const customerData = {
             name: document.getElementById('customer-name').value,
             phone: document.getElementById('customer-phone').value,
-            vcNumber: document.getElementById('customer-vc').value,
             stbNumber: document.getElementById('customer-stb').value,
             amount: parseFloat(document.getElementById('customer-amount').value),
             renewDate: document.getElementById('customer-renew-date').value,
@@ -485,7 +488,6 @@ function initCustomerManagement() {
             document.getElementById('customer-modal-title').textContent = 'Edit Customer';
             document.getElementById('customer-name').value = customer.name;
             document.getElementById('customer-phone').value = customer.phone;
-            document.getElementById('customer-vc').value = customer.vcNumber || '';
             document.getElementById('customer-stb').value = customer.stbNumber;
             document.getElementById('customer-amount').value = customer.amount;
             document.getElementById('customer-renew-date').value = customer.renewDate;
@@ -554,7 +556,6 @@ function renderCustomers() {
                 <td>${customer.id}</td>
                 <td>${customer.name}</td>
                 <td>${customer.phone}</td>
-                <td>${customer.vcNumber || '-'}</td>
                 <td>${customer.stbNumber}</td>
                 <td>${formatCurrency(customer.amount)}</td>
                 <td>${formatCurrency(balanceInfo.paid)}</td>
@@ -565,6 +566,9 @@ function renderCustomers() {
                     <div class="action-buttons">
                         <button class="btn btn-success" onclick="sendSMS('${customer.id}')" title="Send Balance SMS">
                             <i class="fas fa-sms"></i> SMS
+                        </button>
+                        <button class="btn btn-primary" onclick="viewCustomerHistory('${customer.id}')" title="View Payment History">
+                            <i class="fas fa-history"></i> History
                         </button>
                         <button class="btn btn-edit" onclick="editCustomer('${customer.id}')">
                             <i class="fas fa-edit"></i> Edit
@@ -612,7 +616,6 @@ function filterCustomers(searchTerm) {
                 <td>${customer.id}</td>
                 <td>${customer.name}</td>
                 <td>${customer.phone}</td>
-                <td>${customer.vcNumber || '-'}</td>
                 <td>${customer.stbNumber}</td>
                 <td>${formatCurrency(customer.amount)}</td>
                 <td>${formatCurrency(balanceInfo.paid)}</td>
@@ -623,6 +626,9 @@ function filterCustomers(searchTerm) {
                     <div class="action-buttons">
                         <button class="btn btn-success" onclick="sendSMS('${customer.id}')" title="Send Balance SMS">
                             <i class="fas fa-sms"></i> SMS
+                        </button>
+                        <button class="btn btn-primary" onclick="viewCustomerHistory('${customer.id}')" title="View Payment History">
+                            <i class="fas fa-history"></i> History
                         </button>
                         <button class="btn btn-edit" onclick="editCustomer('${customer.id}')">
                             <i class="fas fa-edit"></i> Edit
@@ -729,6 +735,11 @@ function initPaymentManagement() {
             updateDashboard();
             updateOnlinePayments();
             renderCustomers(); // Update customer balances
+            
+            // Update history if on history page
+            if (document.getElementById('history-page')?.classList.contains('active')) {
+                renderHistory();
+            }
         }
     };
 }
@@ -747,31 +758,70 @@ function populateCustomerDropdown() {
 }
 
 function addPayment(paymentData) {
+    const customer = dataStore.customers.find(c => c.id === paymentData.customerId);
+    if (!customer) return;
+
+    // Calculate balance before payment
+    const balanceBefore = calculateCustomerBalance(paymentData.customerId).balance;
+    
+    // Get month from payment date
+    const paymentDate = new Date(paymentData.date);
+    const paymentMonth = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+    
     const payment = {
         id: `PAY${Date.now()}`,
         ...paymentData,
+        month: paymentMonth,
+        balanceBefore: balanceBefore,
+        balanceAfter: Math.max(0, balanceBefore - paymentData.amount),
         createdAt: new Date().toISOString()
     };
+    
     dataStore.payments.push(payment);
     dataStore.savePayments();
     renderPayments();
     updateDashboard();
     updateOnlinePayments();
     renderCustomers(); // Update customer balances
+    
+    // Update history if on history page
+    if (document.getElementById('history-page')?.classList.contains('active')) {
+        renderHistory();
+    }
 }
 
 function updatePayment(id, paymentData) {
     const index = dataStore.payments.findIndex(p => p.id === id);
     if (index !== -1) {
+        const oldPayment = dataStore.payments[index];
+        const customer = dataStore.customers.find(c => c.id === paymentData.customerId);
+        
+        if (!customer) return;
+
+        // Calculate balance before payment
+        const balanceBefore = calculateCustomerBalance(paymentData.customerId).balance;
+        
+        // Get month from payment date
+        const paymentDate = new Date(paymentData.date);
+        const paymentMonth = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+        
         dataStore.payments[index] = {
-            ...dataStore.payments[index],
-            ...paymentData
+            ...oldPayment,
+            ...paymentData,
+            month: paymentMonth,
+            balanceBefore: balanceBefore,
+            balanceAfter: Math.max(0, balanceBefore - paymentData.amount)
         };
         dataStore.savePayments();
         renderPayments();
         updateDashboard();
         updateOnlinePayments();
         renderCustomers(); // Update customer balances
+        
+        // Update history if on history page
+        if (document.getElementById('history-page')?.classList.contains('active')) {
+            renderHistory();
+        }
     }
 }
 
@@ -794,6 +844,24 @@ function renderPayments() {
     if (!tbody) return;
 
     let payments = [...dataStore.payments];
+    
+    // Ensure all payments have month field (migrate old payments)
+    payments.forEach(payment => {
+        if (!payment.month) {
+            const paymentDate = new Date(payment.date);
+            payment.month = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+            // Update in dataStore
+            const index = dataStore.payments.findIndex(p => p.id === payment.id);
+            if (index !== -1) {
+                dataStore.payments[index].month = payment.month;
+            }
+        }
+    });
+    
+    // Save if any were updated
+    if (payments.some(p => !dataStore.payments.find(dp => dp.id === p.id && dp.month))) {
+        dataStore.savePayments();
+    }
     
     // Apply filter
     if (currentPaymentFilter !== 'all') {
@@ -1100,7 +1168,7 @@ function renderExpireCustomers() {
                 <td>${customer.id}</td>
                 <td>${customer.name}</td>
                 <td>${customer.phone}</td>
-                <td>${customer.vcNumber || '-'}</td>
+                
                 <td>${customer.stbNumber}</td>
                 <td>${formatCurrency(customer.amount)}</td>
                 <td>${formatDate(customer.renewDate)}</td>
@@ -1157,6 +1225,189 @@ function updateReports() {
     } else if (netProfit < 0) {
         netProfitEl.classList.add('expense');
     }
+}
+
+// Payment History Management
+function populateHistoryFilters() {
+    const customerFilter = document.getElementById('history-customer-filter');
+    const monthFilter = document.getElementById('history-month-filter');
+
+    // Populate customer filter
+    if (customerFilter) {
+        customerFilter.innerHTML = '<option value="">All Customers</option>';
+        dataStore.customers.forEach(customer => {
+            const option = document.createElement('option');
+            option.value = customer.id;
+            option.textContent = `${customer.id} - ${customer.name}`;
+            customerFilter.appendChild(option);
+        });
+
+        customerFilter.addEventListener('change', renderHistory);
+    }
+
+    // Populate month filter (last 12 months)
+    if (monthFilter) {
+        monthFilter.innerHTML = '<option value="">All Months</option>';
+        const today = new Date();
+        for (let i = 11; i >= 0; i--) {
+            const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+            const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const option = document.createElement('option');
+            option.value = monthStr;
+            option.textContent = monthName;
+            monthFilter.appendChild(option);
+        }
+
+        monthFilter.addEventListener('change', renderHistory);
+    }
+}
+
+function renderHistory() {
+    const tbody = document.getElementById('history-table');
+    if (!tbody) return;
+
+    let payments = [...dataStore.payments].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Apply filters
+    const customerFilter = document.getElementById('history-customer-filter')?.value;
+    const monthFilter = document.getElementById('history-month-filter')?.value;
+
+    if (customerFilter) {
+        payments = payments.filter(p => p.customerId === customerFilter);
+        // Show customer summary
+        showCustomerSummary(customerFilter);
+    } else {
+        // Hide customer summary
+        const summaryCard = document.getElementById('customer-summary-card');
+        if (summaryCard) summaryCard.style.display = 'none';
+    }
+
+    if (monthFilter) {
+        payments = payments.filter(p => p.month === monthFilter);
+    }
+
+    if (payments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="fas fa-history"></i><p>No payment history found.</p></td></tr>';
+        renderMonthlySummary();
+        return;
+    }
+
+    tbody.innerHTML = payments.map(payment => {
+        const customer = dataStore.customers.find(c => c.id === payment.customerId);
+        const customerName = customer ? customer.name : 'Unknown';
+        const methodLabels = {
+            cash: 'Cash',
+            gpay: 'GPay',
+            phonepe: 'PhonePe',
+            bank: 'Bank Transfer',
+            other: 'Other'
+        };
+
+        const monthDate = payment.month ? new Date(payment.month + '-01') : new Date(payment.date);
+        const monthName = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+        return `
+            <tr>
+                <td>${formatDate(payment.date)}</td>
+                <td>${customerName}</td>
+                <td>${monthName}</td>
+                <td>${formatCurrency(payment.amount)}</td>
+                <td>${methodLabels[payment.method] || payment.method}</td>
+                <td>${formatCurrency(payment.balanceBefore || 0)}</td>
+                <td>${formatCurrency(payment.balanceAfter || 0)}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-edit" onclick="editPayment('${payment.id}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-danger" onclick="deletePayment('${payment.id}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    renderMonthlySummary();
+}
+
+function showCustomerSummary(customerId) {
+    const customer = dataStore.customers.find(c => c.id === customerId);
+    if (!customer) return;
+
+    const summaryCard = document.getElementById('customer-summary-card');
+    const customerName = document.getElementById('customer-summary-name');
+    const totalPaid = document.getElementById('customer-total-paid');
+    const currentBalance = document.getElementById('customer-current-balance');
+    const paymentCount = document.getElementById('customer-payment-count');
+
+    if (summaryCard) summaryCard.style.display = 'block';
+    if (customerName) customerName.textContent = `${customer.id} - ${customer.name}`;
+
+    const customerPayments = dataStore.payments.filter(p => p.customerId === customerId);
+    const totalPaidAmount = customerPayments.reduce((sum, p) => sum + p.amount, 0);
+    const balanceInfo = calculateCustomerBalance(customerId);
+
+    if (totalPaid) totalPaid.textContent = formatCurrency(totalPaidAmount);
+    if (currentBalance) {
+        currentBalance.textContent = formatCurrency(balanceInfo.balance);
+        currentBalance.className = 'summary-value';
+        if (balanceInfo.balance > 0) {
+            currentBalance.classList.add('balance-negative');
+        } else if (balanceInfo.balance < 0) {
+            currentBalance.classList.add('balance-positive');
+        }
+    }
+    if (paymentCount) paymentCount.textContent = customerPayments.length;
+}
+
+window.viewCustomerHistory = (customerId) => {
+    // Navigate to history page
+    showPage('history');
+    
+    // Set customer filter
+    const customerFilter = document.getElementById('history-customer-filter');
+    if (customerFilter) {
+        customerFilter.value = customerId;
+        renderHistory();
+    }
+};
+
+function renderMonthlySummary() {
+    const summaryContainer = document.getElementById('monthly-summary');
+    if (!summaryContainer) return;
+
+    // Get last 12 months
+    const today = new Date();
+    const months = [];
+    for (let i = 11; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const monthName = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        
+        const monthPayments = dataStore.payments.filter(p => p.month === monthStr);
+        const totalAmount = monthPayments.reduce((sum, p) => sum + p.amount, 0);
+        const paymentCount = monthPayments.length;
+
+        months.push({
+            month: monthStr,
+            name: monthName,
+            amount: totalAmount,
+            count: paymentCount
+        });
+    }
+
+    summaryContainer.innerHTML = months.map(month => {
+        return `
+            <div class="month-card">
+                <h4>${month.name}</h4>
+                <div class="amount">${formatCurrency(month.amount)}</div>
+                <div class="count">${month.count} payment(s)</div>
+            </div>
+        `;
+    }).join('');
 }
 
 // Invoice Management
@@ -1360,7 +1611,7 @@ window.viewInvoice = (invoiceId) => {
                     <p>Customer ID: ${customer.id}</p>
                     <p>Phone: ${customer.phone}</p>
                     <p>STB Number: ${customer.stbNumber}</p>
-                    ${customer.vcNumber ? `<p>VC Number: ${customer.vcNumber}</p>` : ''}
+                
                 </div>
                 <div style="text-align: right;">
                     <p><strong>Invoice #:</strong> ${invoice.id}</p>
@@ -1509,7 +1760,7 @@ function initLogin() {
             icon.classList.toggle('fa-eye-slash');
         });
     }
-
+    
     // Login form submission
     if (loginForm) {
         loginForm.addEventListener('submit', (e) => {
@@ -1521,6 +1772,7 @@ function initLogin() {
                 showLoginError('Please enter both Operator ID and Password');
                 return;
             }
+            
 
             if (authSystem.login(operatorId, password)) {
                 // Hide login page, show main app
@@ -1534,14 +1786,22 @@ function initLogin() {
         });
     }
 
-    // Logout functionality
+}
+
+// Logout functionality - separate from login init
+function initLogout() {
     const logoutBtn = document.getElementById('logout-btn');
+    const loginPage = document.getElementById('login-page');
+    const mainApp = document.getElementById('main-app');
+    const loginForm = document.getElementById('login-form');
+    const errorMessage = document.getElementById('login-error');
+
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
             if (confirm('Are you sure you want to logout?')) {
                 authSystem.logout();
-                loginPage.style.display = 'flex';
-                mainApp.style.display = 'none';
+                if (loginPage) loginPage.style.display = 'flex';
+                if (mainApp) mainApp.style.display = 'none';
                 // Clear form
                 if (loginForm) {
                     loginForm.reset();
@@ -1803,6 +2063,7 @@ function initializeApp() {
     initInvoiceManagement();
     initPaymentFilters();
     initSMSManagement();
+    initLogout();
     updateCurrentDate();
     updateDashboard();
     updateOnlinePayments();
