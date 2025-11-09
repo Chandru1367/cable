@@ -99,7 +99,16 @@
             <main class="content">
                 <!-- Dashboard Page -->
                 <div id="dashboard-page" class="page active">
-                    <h2 class="page-title">Dashboard</h2>
+                    <div class="dashboard-header">
+                        <div>
+                            <h2 class="page-title">Dashboard</h2>
+                            <p class="dashboard-subtitle">Welcome back! Here's your business overview</p>
+                        </div>
+                        <div class="dashboard-date">
+                            <i class="fas fa-calendar"></i>
+                            <span id="current-date"></span>
+                        </div>
+                    </div>
                     
                     <!-- KPI Cards -->
                     <div class="kpi-grid">
@@ -504,6 +513,52 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" id="cancel-payment-btn">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SMS Modal -->
+    <div id="sms-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="sms-modal-title">Send SMS to Customer</h3>
+                <span class="close">&times;</span>
+            </div>
+            <form id="sms-form">
+                <div class="form-group">
+                    <label>Customer *</label>
+                    <select id="sms-customer" required>
+                        <option value="">Select Customer</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Mobile Number *</label>
+                    <input type="tel" id="sms-phone" placeholder="Enter mobile number" required>
+                </div>
+                <div class="form-group">
+                    <label>Message Preview</label>
+                    <textarea id="sms-message" rows="6" readonly style="resize: vertical;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Send Method</label>
+                    <select id="sms-method">
+                        <option value="whatsapp">WhatsApp (Direct Link)</option>
+                        <option value="manual" selected>Copy to Clipboard</option>
+                        <option value="sms">SMS Gateway (API)</option>
+                    </select>
+                    <small style="color: var(--text-light); margin-top: 0.5rem; display: block;">
+                        WhatsApp: Opens WhatsApp with message. Copy: Copy message to paste manually. SMS: Requires API configuration.
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancel-sms-btn">Cancel</button>
+                    <button type="button" class="btn btn-success" id="copy-sms-btn">
+                        <i class="fas fa-copy"></i> Copy Message
+                    </button>
+                    <button type="submit" class="btn btn-primary" id="send-sms-btn">
+                        <i class="fas fa-paper-plane"></i> Send SMS
+                    </button>
                 </div>
             </form>
         </div>

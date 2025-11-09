@@ -68,15 +68,84 @@ class AuthSystem {
 // Initialize Auth System
 const authSystem = new AuthSystem();
 
-// Data Storage
-class DataStore {
+// Enhanced Database System with IndexedDB and localStorage backup
+class Database {
     constructor() {
-        this.customers = this.loadData('customers') || [];
-        this.payments = this.loadData('payments') || [];
-        this.expenses = this.loadData('expenses') || [];
-        this.invoices = this.loadData('invoices') || [];
-        this.nextCustomerId = this.loadData('nextCustomerId') || 1;
-        this.nextInvoiceId = this.loadData('nextInvoiceId') || 1;
+        this.dbName = 'CableTVBillingDB';
+        this.dbVersion = 1;
+        this.db = null;
+        this.useIndexedDB = 'indexedDB' in window;
+        this.init();
+    }
+
+    async init() {
+        if (this.useIndexedDB) {
+            try {
+                this.db = await this.openDB();
+                await this.loadAllData();
+            } catch (error) {
+                console.warn('IndexedDB not available, using localStorage:', error);
+                this.useIndexedDB = false;
+                this.loadAllData();
+            }
+        } else {
+            this.loadAllData();
+        }
+    }
+
+    openDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.dbVersion);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                
+                // Create object stores
+                if (!db.objectStoreNames.contains('customers')) {
+                    db.createObjectStore('customers', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('payments')) {
+                    db.createObjectStore('payments', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('expenses')) {
+                    db.createObjectStore('expenses', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('invoices')) {
+                    db.createObjectStore('invoices', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('operators')) {
+                    db.createObjectStore('operators', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.createObjectStore('settings', { keyPath: 'key' });
+                }
+            };
+        });
+    }
+
+    async saveToIndexedDB(storeName, data) {
+        if (!this.db) return;
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.put(data);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getAllFromIndexedDB(storeName) {
+        if (!this.db) return [];
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
     }
 
     loadData(key) {
@@ -88,27 +157,152 @@ class DataStore {
         localStorage.setItem(key, JSON.stringify(data));
     }
 
-    saveCustomers() {
+    async loadAllData() {
+        if (this.useIndexedDB && this.db) {
+            try {
+                this.customers = await this.getAllFromIndexedDB('customers');
+                this.payments = await this.getAllFromIndexedDB('payments');
+                this.expenses = await this.getAllFromIndexedDB('expenses');
+                this.invoices = await this.getAllFromIndexedDB('invoices');
+                
+                // Load settings
+                const settings = await this.getAllFromIndexedDB('settings');
+                const nextCustomerId = settings.find(s => s.key === 'nextCustomerId');
+                const nextInvoiceId = settings.find(s => s.key === 'nextInvoiceId');
+                
+                this.nextCustomerId = nextCustomerId ? nextCustomerId.value : (this.loadData('nextCustomerId') || 1);
+                this.nextInvoiceId = nextInvoiceId ? nextInvoiceId.value : (this.loadData('nextInvoiceId') || 1);
+                
+                // Migrate from localStorage if IndexedDB is empty
+                if (this.customers.length === 0) {
+                    const localCustomers = this.loadData('customers') || [];
+                    if (localCustomers.length > 0) {
+                        this.customers = localCustomers;
+                        await this.saveAllCustomers();
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading from IndexedDB:', error);
+                this.loadFromLocalStorage();
+            }
+        } else {
+            this.loadFromLocalStorage();
+        }
+    }
+
+    loadFromLocalStorage() {
+        this.customers = this.loadData('customers') || [];
+        this.payments = this.loadData('payments') || [];
+        this.expenses = this.loadData('expenses') || [];
+        this.invoices = this.loadData('invoices') || [];
+        this.nextCustomerId = this.loadData('nextCustomerId') || 1;
+        this.nextInvoiceId = this.loadData('nextInvoiceId') || 1;
+    }
+
+    async saveAllCustomers() {
+        // Save to IndexedDB
+        if (this.useIndexedDB && this.db) {
+            try {
+                for (const customer of this.customers) {
+                    await this.saveToIndexedDB('customers', customer);
+                }
+                await this.saveToIndexedDB('settings', { key: 'nextCustomerId', value: this.nextCustomerId });
+            } catch (error) {
+                console.error('Error saving to IndexedDB:', error);
+            }
+        }
+        // Always backup to localStorage
         this.saveData('customers', this.customers);
         this.saveData('nextCustomerId', this.nextCustomerId);
     }
 
-    savePayments() {
+    async saveAllPayments() {
+        if (this.useIndexedDB && this.db) {
+            try {
+                for (const payment of this.payments) {
+                    await this.saveToIndexedDB('payments', payment);
+                }
+            } catch (error) {
+                console.error('Error saving to IndexedDB:', error);
+            }
+        }
         this.saveData('payments', this.payments);
     }
 
-    saveExpenses() {
+    async saveAllExpenses() {
+        if (this.useIndexedDB && this.db) {
+            try {
+                for (const expense of this.expenses) {
+                    await this.saveToIndexedDB('expenses', expense);
+                }
+            } catch (error) {
+                console.error('Error saving to IndexedDB:', error);
+            }
+        }
         this.saveData('expenses', this.expenses);
     }
 
-    saveInvoices() {
+    async saveAllInvoices() {
+        if (this.useIndexedDB && this.db) {
+            try {
+                for (const invoice of this.invoices) {
+                    await this.saveToIndexedDB('invoices', invoice);
+                }
+                await this.saveToIndexedDB('settings', { key: 'nextInvoiceId', value: this.nextInvoiceId });
+            } catch (error) {
+                console.error('Error saving to IndexedDB:', error);
+            }
+        }
         this.saveData('invoices', this.invoices);
         this.saveData('nextInvoiceId', this.nextInvoiceId);
     }
+
+    saveCustomers() {
+        this.saveAllCustomers();
+    }
+
+    savePayments() {
+        this.saveAllPayments();
+    }
+
+    saveExpenses() {
+        this.saveAllExpenses();
+    }
+
+    saveInvoices() {
+        this.saveAllInvoices();
+    }
 }
 
-// Initialize Data Store
-const dataStore = new DataStore();
+// Initialize Database
+let dataStore;
+
+// Wait for database to initialize
+async function initDatabase() {
+    dataStore = new Database();
+    // Wait a bit for IndexedDB to initialize
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return dataStore;
+}
+
+// Initialize database and wait for it
+initDatabase().then(() => {
+    // Auto-save functionality - save data before page unload
+    window.addEventListener('beforeunload', () => {
+        if (dataStore && dataStore.customers) dataStore.saveCustomers();
+        if (dataStore && dataStore.payments) dataStore.savePayments();
+        if (dataStore && dataStore.expenses) dataStore.saveExpenses();
+        if (dataStore && dataStore.invoices) dataStore.saveInvoices();
+    });
+
+    // Auto-save every 30 seconds
+    setInterval(() => {
+        if (dataStore && dataStore.customers) dataStore.saveCustomers();
+        if (dataStore && dataStore.payments) dataStore.savePayments();
+        if (dataStore && dataStore.expenses) dataStore.saveExpenses();
+        if (dataStore && dataStore.invoices) dataStore.saveInvoices();
+    }, 30000);
+});
 
 // Utility Functions
 function formatCurrency(amount) {
@@ -369,6 +563,9 @@ function renderCustomers() {
                 <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 <td>
                     <div class="action-buttons">
+                        <button class="btn btn-success" onclick="sendSMS('${customer.id}')" title="Send Balance SMS">
+                            <i class="fas fa-sms"></i> SMS
+                        </button>
                         <button class="btn btn-edit" onclick="editCustomer('${customer.id}')">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -424,6 +621,9 @@ function filterCustomers(searchTerm) {
                 <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 <td>
                     <div class="action-buttons">
+                        <button class="btn btn-success" onclick="sendSMS('${customer.id}')" title="Send Balance SMS">
+                            <i class="fas fa-sms"></i> SMS
+                        </button>
                         <button class="btn btn-edit" onclick="editCustomer('${customer.id}')">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -1365,9 +1565,14 @@ function showLoginError(message) {
     }
 }
 
-function checkAuthentication() {
+async function checkAuthentication() {
     const loginPage = document.getElementById('login-page');
     const mainApp = document.getElementById('main-app');
+
+    // Wait for database to be ready
+    if (!dataStore) {
+        await initDatabase();
+    }
 
     if (authSystem.isAuthenticated()) {
         loginPage.style.display = 'none';
@@ -1380,6 +1585,215 @@ function checkAuthentication() {
     }
 }
 
+// SMS Management
+function initSMSManagement() {
+    const smsModal = document.getElementById('sms-modal');
+    const smsForm = document.getElementById('sms-form');
+    const cancelBtn = document.getElementById('cancel-sms-btn');
+    const copyBtn = document.getElementById('copy-sms-btn');
+    const closeBtn = smsModal?.querySelector('.close');
+    const customerSelect = document.getElementById('sms-customer');
+    const phoneInput = document.getElementById('sms-phone');
+    const messageTextarea = document.getElementById('sms-message');
+
+    cancelBtn?.addEventListener('click', () => {
+        smsModal.classList.remove('active');
+    });
+
+    closeBtn?.addEventListener('click', () => {
+        smsModal.classList.remove('active');
+    });
+
+    // Update message when customer or phone changes
+    customerSelect?.addEventListener('change', updateSMSMessage);
+    phoneInput?.addEventListener('input', updateSMSMessage);
+
+    // Copy message button
+    copyBtn?.addEventListener('click', () => {
+        const message = messageTextarea.value;
+        if (message) {
+            navigator.clipboard.writeText(message).then(() => {
+                alert('Message copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                messageTextarea.select();
+                document.execCommand('copy');
+                alert('Message copied to clipboard!');
+            });
+        }
+    });
+
+    // Send SMS form
+    smsForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const customerId = customerSelect.value;
+        const phone = phoneInput.value;
+        const method = document.getElementById('sms-method').value;
+        const message = messageTextarea.value;
+
+        if (!customerId || !phone || !message) {
+            alert('Please fill all required fields');
+            return;
+        }
+
+        if (method === 'manual') {
+            // Just copy to clipboard
+            navigator.clipboard.writeText(message).then(() => {
+                alert('Message copied to clipboard! You can now paste it in your messaging app.');
+            });
+            smsModal.classList.remove('active');
+            return;
+        } else if (method === 'whatsapp') {
+            // Open WhatsApp with pre-filled message
+            const whatsappUrl = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+            window.open(whatsappUrl, '_blank');
+            smsModal.classList.remove('active');
+            return;
+        }
+
+        // For API-based sending (requires backend configuration)
+        try {
+            await sendSMSViaAPI(phone, message, method);
+            alert('SMS sent successfully!');
+            smsModal.classList.remove('active');
+            smsForm.reset();
+        } catch (error) {
+            alert('Failed to send SMS. Please use WhatsApp or Manual Copy option.');
+            console.error('SMS Error:', error);
+        }
+    });
+}
+
+window.sendSMS = (customerId) => {
+    const customer = dataStore.customers.find(c => c.id === customerId);
+    if (!customer) return;
+
+    const smsModal = document.getElementById('sms-modal');
+    const customerSelect = document.getElementById('sms-customer');
+    const phoneInput = document.getElementById('sms-phone');
+
+    // Populate customer dropdown
+    customerSelect.innerHTML = '<option value="">Select Customer</option>';
+    dataStore.customers.forEach(c => {
+        const option = document.createElement('option');
+        option.value = c.id;
+        option.textContent = `${c.id} - ${c.name}`;
+        if (c.id === customerId) {
+            option.selected = true;
+        }
+        customerSelect.appendChild(option);
+    });
+
+    // Set phone number
+    phoneInput.value = customer.phone;
+
+    // Update message
+    updateSMSMessage();
+
+    smsModal.classList.add('active');
+};
+
+function updateSMSMessage() {
+    const customerSelect = document.getElementById('sms-customer');
+    const phoneInput = document.getElementById('sms-phone');
+    const messageTextarea = document.getElementById('sms-message');
+
+    if (!customerSelect || !messageTextarea) return;
+
+    const customerId = customerSelect.value;
+    if (!customerId) {
+        messageTextarea.value = '';
+        return;
+    }
+
+    const customer = dataStore.customers.find(c => c.id === customerId);
+    if (!customer) return;
+
+    // Calculate balance
+    const balanceInfo = calculateCustomerBalance(customerId);
+    const today = new Date().toLocaleDateString('en-GB');
+
+    // Create message
+    const message = `Dear ${customer.name},
+
+Your Cable TV Account Summary:
+Customer ID: ${customer.id}
+Received Amount: ${formatCurrency(balanceInfo.paid)}
+Balance Amount: ${formatCurrency(balanceInfo.balance)}
+Renew Date: ${formatDate(customer.renewDate)}
+
+Thank you for your business!
+MS Digital Cable TV`;
+
+    messageTextarea.value = message;
+}
+
+async function sendSMSViaAPI(phone, message, method) {
+    // This function should be configured with your SMS/WhatsApp API
+    // Example implementations:
+    
+    if (method === 'whatsapp') {
+        // WhatsApp API integration (e.g., Twilio, WhatsApp Business API)
+        // You need to configure your API endpoint and credentials
+        const apiUrl = localStorage.getItem('whatsapp_api_url') || '';
+        const apiKey = localStorage.getItem('whatsapp_api_key') || '';
+        
+        if (!apiUrl || !apiKey) {
+            throw new Error('WhatsApp API not configured. Please configure in settings.');
+        }
+
+        // Example API call (adjust based on your provider)
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                to: phone,
+                message: message
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to send WhatsApp message');
+        }
+    } else if (method === 'sms') {
+        // SMS Gateway integration (e.g., Twilio, TextLocal, etc.)
+        const apiUrl = localStorage.getItem('sms_api_url') || '';
+        const apiKey = localStorage.getItem('sms_api_key') || '';
+        
+        if (!apiUrl || !apiKey) {
+            throw new Error('SMS API not configured. Please configure in settings.');
+        }
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                to: phone,
+                message: message
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to send SMS');
+        }
+    }
+}
+
+function updateCurrentDate() {
+    const dateEl = document.getElementById('current-date');
+    if (dateEl) {
+        const today = new Date();
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        dateEl.textContent = today.toLocaleDateString('en-US', options);
+    }
+}
+
 function initializeApp() {
     initMobileMenu();
     initNavigation();
@@ -1388,6 +1802,8 @@ function initializeApp() {
     initExpenseManagement();
     initInvoiceManagement();
     initPaymentFilters();
+    initSMSManagement();
+    updateCurrentDate();
     updateDashboard();
     updateOnlinePayments();
     showPage('dashboard');
