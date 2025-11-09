@@ -12,7 +12,7 @@ class AuthSystem {
         }
         // Default operator
         const defaultOperators = [
-            { id: 'admin', password: 'admin123', name: 'Administrator' }
+            { id: 'msdigital', password: 'ms123', name: 'MS Digital Operator' }
         ];
         this.saveOperators(defaultOperators);
         return defaultOperators;
