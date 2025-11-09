@@ -1601,7 +1601,7 @@ window.viewInvoice = (invoiceId) => {
     const invoiceHTML = `
         <div style="max-width: 800px; margin: 0 auto; padding: 2rem; background: white; border-radius: 10px;">
             <div style="text-align: center; margin-bottom: 2rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 1rem;">
-                <h2 style="color: var(--primary-color);">CAB-LINK DIGITAL</h2>
+                <h2 style="color: var(--primary-color);">MS Digital World</h2>
                 <p>Invoice</p>
             </div>
             <div style="display: flex; justify-content: space-between; margin-bottom: 2rem;">
