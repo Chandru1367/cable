@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#2563eb">
@@ -11,7 +11,43 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
+    <!-- Login Page -->
+    <div id="login-page" class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fas fa-tv"></i>
+                <h1>CAB-LINK DIGITAL</h1>
+                <p>Cable TV Billing System</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="operator-id">
+                        <i class="fas fa-user"></i> Operator ID
+                    </label>
+                    <input type="text" id="operator-id" placeholder="Enter Operator ID" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="operator-password">
+                        <i class="fas fa-lock"></i> Password
+                    </label>
+                    <input type="password" id="operator-password" placeholder="Enter Password" required autocomplete="current-password">
+                    <button type="button" class="password-toggle" id="password-toggle">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+                <div id="login-error" class="error-message" style="display: none;"></div>
+                <button type="submit" class="btn btn-primary btn-login">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+            </form>
+            <div class="login-footer">
+                <p>Default: admin / admin123</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div class="container" id="main-app" style="display: none;">
         <!-- Header -->
         <header class="header">
             <div class="header-left">
@@ -29,6 +65,12 @@
                 <a href="#" class="nav-link" data-page="expenses">Expenses</a>
                 <a href="#" class="nav-link" data-page="reports">Reports</a>
             </nav>
+            <div class="header-right">
+                <button class="btn-logout" id="logout-btn" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span class="logout-text">Logout</span>
+                </button>
+            </div>
         </header>
 
         <div class="main-content">

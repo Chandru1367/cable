@@ -1,3 +1,73 @@
+// Authentication System
+class AuthSystem {
+    constructor() {
+        this.operators = this.loadOperators();
+        this.currentOperator = this.loadCurrentOperator();
+    }
+
+    loadOperators() {
+        const stored = localStorage.getItem('operators');
+        if (stored) {
+            return JSON.parse(stored);
+        }
+        // Default operator
+        const defaultOperators = [
+            { id: 'admin', password: 'admin123', name: 'Administrator' }
+        ];
+        this.saveOperators(defaultOperators);
+        return defaultOperators;
+    }
+
+    saveOperators(operators) {
+        localStorage.setItem('operators', JSON.stringify(operators));
+    }
+
+    loadCurrentOperator() {
+        const stored = sessionStorage.getItem('currentOperator');
+        return stored ? JSON.parse(stored) : null;
+    }
+
+    saveCurrentOperator(operator) {
+        if (operator) {
+            sessionStorage.setItem('currentOperator', JSON.stringify(operator));
+        } else {
+            sessionStorage.removeItem('currentOperator');
+        }
+    }
+
+    login(operatorId, password) {
+        const operator = this.operators.find(op => op.id === operatorId);
+        if (operator && operator.password === password) {
+            this.currentOperator = { id: operator.id, name: operator.name };
+            this.saveCurrentOperator(this.currentOperator);
+            return true;
+        }
+        return false;
+    }
+
+    logout() {
+        this.currentOperator = null;
+        this.saveCurrentOperator(null);
+    }
+
+    isAuthenticated() {
+        return this.currentOperator !== null;
+    }
+
+    addOperator(operatorId, password, name) {
+        const exists = this.operators.find(op => op.id === operatorId);
+        if (exists) {
+            return false;
+        }
+        this.operators.push({ id: operatorId, password, name });
+        this.saveOperators(this.operators);
+        return true;
+    }
+}
+
+// Initialize Auth System
+const authSystem = new AuthSystem();
+
 // Data Storage
 class DataStore {
     constructor() {
@@ -1220,8 +1290,97 @@ function initMobileMenu() {
     }
 }
 
-// Initialize App
-document.addEventListener('DOMContentLoaded', () => {
+// Login System
+function initLogin() {
+    const loginForm = document.getElementById('login-form');
+    const loginPage = document.getElementById('login-page');
+    const mainApp = document.getElementById('main-app');
+    const passwordToggle = document.getElementById('password-toggle');
+    const passwordInput = document.getElementById('operator-password');
+    const errorMessage = document.getElementById('login-error');
+
+    // Password toggle
+    if (passwordToggle && passwordInput) {
+        passwordToggle.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            const icon = passwordToggle.querySelector('i');
+            icon.classList.toggle('fa-eye');
+            icon.classList.toggle('fa-eye-slash');
+        });
+    }
+
+    // Login form submission
+    if (loginForm) {
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const operatorId = document.getElementById('operator-id').value.trim();
+            const password = document.getElementById('operator-password').value;
+
+            if (!operatorId || !password) {
+                showLoginError('Please enter both Operator ID and Password');
+                return;
+            }
+
+            if (authSystem.login(operatorId, password)) {
+                // Hide login page, show main app
+                loginPage.style.display = 'none';
+                mainApp.style.display = 'flex';
+                // Initialize app
+                initializeApp();
+            } else {
+                showLoginError('Invalid Operator ID or Password');
+            }
+        });
+    }
+
+    // Logout functionality
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to logout?')) {
+                authSystem.logout();
+                loginPage.style.display = 'flex';
+                mainApp.style.display = 'none';
+                // Clear form
+                if (loginForm) {
+                    loginForm.reset();
+                }
+                if (errorMessage) {
+                    errorMessage.style.display = 'none';
+                }
+            }
+        });
+    }
+}
+
+function showLoginError(message) {
+    const errorMessage = document.getElementById('login-error');
+    if (errorMessage) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+        setTimeout(() => {
+            errorMessage.style.display = 'none';
+        }, 5000);
+    }
+}
+
+function checkAuthentication() {
+    const loginPage = document.getElementById('login-page');
+    const mainApp = document.getElementById('main-app');
+
+    if (authSystem.isAuthenticated()) {
+        loginPage.style.display = 'none';
+        mainApp.style.display = 'flex';
+        initializeApp();
+    } else {
+        loginPage.style.display = 'flex';
+        mainApp.style.display = 'none';
+        initLogin();
+    }
+}
+
+function initializeApp() {
     initMobileMenu();
     initNavigation();
     initCustomerManagement();
@@ -1232,4 +1391,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDashboard();
     updateOnlinePayments();
     showPage('dashboard');
+}
+
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuthentication();
 });
