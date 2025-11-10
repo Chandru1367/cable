@@ -2,6 +2,28 @@ const path = require('path');
 const os = require('os');
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
+const mongoose = require('mongoose');
+
+// Load models only when mongoose is available
+let CustomerModel = null;
+let PaymentModel = null;
+
+const MONGODB_URI = process.env.MONGODB_URI || null;
+let usingMongo = false;
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => {
+      usingMongo = true;
+      // Lazy require models after successful connection
+      CustomerModel = require('./models/customer');
+      PaymentModel = require('./models/payment');
+      console.log('Connected to MongoDB');
+    })
+    .catch(err => {
+      console.error('Failed to connect to MongoDB:', err.message);
+    });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,47 +67,90 @@ function writeDataFile(data) {
 }
 
 // GET customers
-app.get('/api/customers', (req, res) => {
-  const data = readDataFile();
-  res.json(data.customers || []);
+app.get('/api/customers', async (req, res) => {
+  try {
+    if (usingMongo && CustomerModel) {
+      const customers = await CustomerModel.find().lean().exec();
+      // Ensure each item has `id` for frontend compatibility
+      const mapped = customers.map(c => ({ ...c, id: c.id || String(c._id) }));
+      return res.json(mapped);
+    }
+    const data = readDataFile();
+    return res.json(data.customers || []);
+  } catch (err) {
+    console.error('GET /api/customers error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // POST customer
-app.post('/api/customers', (req, res) => {
-  const payload = req.body || {};
-  if (!payload.name) return res.status(400).json({ error: 'Missing name' });
-  const data = readDataFile();
-  const id = `CUST${String(data.nextCustomerId).padStart(6, '0')}`;
-  data.nextCustomerId = (data.nextCustomerId || 1) + 1;
-  const customer = { id, ...payload, createdAt: new Date().toISOString() };
-  data.customers = data.customers || [];
-  data.customers.push(customer);
-  writeDataFile(data);
-  res.status(201).json({ ok: true, customer });
+app.post('/api/customers', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    if (!payload.name) return res.status(400).json({ error: 'Missing name' });
+    if (usingMongo && CustomerModel) {
+      const doc = await CustomerModel.create(payload);
+      const obj = doc.toObject();
+      obj.id = obj.id || String(obj._id);
+      return res.status(201).json({ ok: true, customer: obj });
+    }
+    const data = readDataFile();
+    const id = `CUST${String(data.nextCustomerId).padStart(6, '0')}`;
+    data.nextCustomerId = (data.nextCustomerId || 1) + 1;
+    const customer = { id, ...payload, createdAt: new Date().toISOString() };
+    data.customers = data.customers || [];
+    data.customers.push(customer);
+    writeDataFile(data);
+    res.status(201).json({ ok: true, customer });
+  } catch (err) {
+    console.error('POST /api/customers error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // GET payments
-app.get('/api/payments', (req, res) => {
-  const data = readDataFile();
-  res.json(data.payments || []);
+app.get('/api/payments', async (req, res) => {
+  try {
+    if (usingMongo && PaymentModel) {
+      const payments = await PaymentModel.find().lean().exec();
+      const mapped = payments.map(p => ({ ...p, id: p.id || String(p._id) }));
+      return res.json(mapped);
+    }
+    const data = readDataFile();
+    return res.json(data.payments || []);
+  } catch (err) {
+    console.error('GET /api/payments error', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // POST payment (persist)
-app.post('/api/payments', (req, res) => {
-  const payload = req.body || {};
-  if (!payload.customerId || typeof payload.amount !== 'number') {
-    return res.status(400).json({ error: 'Missing customerId or amount (number expected)' });
+app.post('/api/payments', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    if (!payload.customerId || typeof payload.amount !== 'number') {
+      return res.status(400).json({ error: 'Missing customerId or amount (number expected)' });
+    }
+    if (usingMongo && PaymentModel) {
+      const doc = await PaymentModel.create(payload);
+      const obj = doc.toObject();
+      obj.id = obj.id || String(obj._id);
+      return res.status(201).json({ ok: true, payment: obj });
+    }
+    const data = readDataFile();
+    const payment = {
+      id: `PAY${Date.now()}`,
+      ...payload,
+      createdAt: new Date().toISOString()
+    };
+    data.payments = data.payments || [];
+    data.payments.push(payment);
+    writeDataFile(data);
+    res.status(201).json({ ok: true, payment });
+  } catch (err) {
+    console.error('POST /api/payments error', err);
+    res.status(500).json({ error: 'Server error' });
   }
-  const data = readDataFile();
-  const payment = {
-    id: `PAY${Date.now()}`,
-    ...payload,
-    createdAt: new Date().toISOString()
-  };
-  data.payments = data.payments || [];
-  data.payments.push(payment);
-  writeDataFile(data);
-  res.status(201).json({ ok: true, payment });
 });
 
 // Fallback for unknown API routes (match any path under /api)

@@ -2127,6 +2127,7 @@ function initializeApp() {
     initPaymentFilters();
     initSMSManagement();
     initLogout();
+    initSyncButton();
     updateCurrentDate();
     updateDashboard();
     updateOnlinePayments();
@@ -2180,3 +2181,112 @@ document.addEventListener('DOMContentLoaded', async () => {
     await syncFromServer();
     checkAuthentication();
 });
+
+// --- Sync UI & functionality: push local customers/payments to server ---
+function initSyncButton() {
+    const btn = document.getElementById('sync-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        if (!confirm('This will push your local customers and payments to the server. Continue?')) return;
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+        try {
+            await pushLocalToServer((progress) => {
+                // optional: could update UI with progress
+                console.log('sync progress', progress);
+            });
+            alert('Sync complete. Reload other devices (enable sync there) to view server data.');
+        } catch (err) {
+            console.error('Sync failed', err);
+            alert('Sync failed. See console for details.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i><span class="logout-text">Sync</span>';
+        }
+    });
+}
+
+async function pushLocalToServer(progressCb) {
+    // Ensure we have a dataStore
+    if (!dataStore) await initDatabase();
+
+    const server = '/api';
+
+    // Fetch existing server customers to avoid duplicates
+    const serverCustomersRes = await fetch(server + '/customers');
+    if (!serverCustomersRes.ok) throw new Error('Failed to fetch server customers');
+    const serverCustomers = await serverCustomersRes.json();
+
+    // Build index by name|phone for simple duplicate detection
+    const serverIndex = {};
+    for (const sc of serverCustomers) {
+        const key = `${(sc.name||'').toLowerCase()}|${(sc.phone||'').toLowerCase()}`;
+        serverIndex[key] = sc.id || sc._id || sc.id;
+    }
+
+    // Local customers
+    const localCustomers = dataStore.customers || JSON.parse(localStorage.getItem('customers') || '[]');
+    const idMap = {}; // localId -> serverId
+
+    let i = 0;
+    for (const lc of localCustomers) {
+        i++;
+        const key = `${(lc.name||'').toLowerCase()}|${(lc.phone||'').toLowerCase()}`;
+        if (serverIndex[key]) {
+            idMap[lc.id] = serverIndex[key];
+            if (progressCb) progressCb({ phase: 'customer-skip', index: i, total: localCustomers.length });
+            continue; // already exists on server
+        }
+
+        // Create on server
+        const payload = {
+            name: lc.name,
+            phone: lc.phone,
+            stbNumber: lc.stbNumber,
+            amount: lc.amount,
+            renewDate: lc.renewDate,
+            status: lc.status
+        };
+        try {
+            const res = await fetch(server + '/customers', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const serverId = json.customer?.id || json.customer?._id || null;
+                if (serverId) {
+                    idMap[lc.id] = serverId;
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to push customer', lc, err);
+        }
+        if (progressCb) progressCb({ phase: 'customer-push', index: i, total: localCustomers.length });
+    }
+
+    // Save mapping locally for future reference
+    localStorage.setItem('serverIdMap', JSON.stringify(idMap));
+
+    // Now push payments, mapping customer ids where possible
+    const localPayments = dataStore.payments || JSON.parse(localStorage.getItem('payments') || '[]');
+    let j = 0;
+    for (const lp of localPayments) {
+        j++;
+        const mappedCustomerId = idMap[lp.customerId] || lp.customerId;
+        const payload = {
+            customerId: mappedCustomerId,
+            amount: lp.amount,
+            method: lp.method,
+            date: lp.date,
+            transactionId: lp.transactionId || null
+        };
+        try {
+            await fetch(server + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        } catch (err) {
+            console.warn('Failed to push payment', lp, err);
+        }
+        if (progressCb) progressCb({ phase: 'payment-push', index: j, total: localPayments.length });
+    }
+
+    return { customersPushed: Object.keys(idMap).length, paymentsPushed: localPayments.length };
+}
