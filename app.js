@@ -2071,6 +2071,49 @@ function initializeApp() {
 }
 
 // Initialize App
-document.addEventListener('DOMContentLoaded', () => {
+// Optional server sync: if localStorage.syncWithServer === 'true' the app
+// will attempt to load customers/payments from the backend at /api
+async function syncFromServer() {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        if (localStorage.getItem('syncWithServer') !== 'true') return;
+
+        // Wait for database to initialize
+        if (!dataStore) await initDatabase();
+
+        const [custRes, payRes] = await Promise.all([
+            fetch('/api/customers'),
+            fetch('/api/payments')
+        ]);
+
+        if (!custRes.ok || !payRes.ok) {
+            console.warn('Server sync: one or more endpoints not available');
+            return;
+        }
+
+        const customers = await custRes.json();
+        const payments = await payRes.json();
+
+        // Replace local store with server data (simple merge strategy)
+        dataStore.customers = Array.isArray(customers) ? customers : dataStore.customers || [];
+        dataStore.payments = Array.isArray(payments) ? payments : dataStore.payments || [];
+
+        // Persist locally as backup
+        if (dataStore && dataStore.saveCustomers) dataStore.saveCustomers();
+        if (dataStore && dataStore.savePayments) dataStore.savePayments();
+
+        // Re-render UI where appropriate
+        try { renderCustomers(); } catch (e) {}
+        try { renderPayments(); } catch (e) {}
+        try { updateDashboard(); } catch (e) {}
+
+        console.log('Data synced from server');
+    } catch (err) {
+        console.warn('Server sync failed', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await syncFromServer();
     checkAuthentication();
 });
