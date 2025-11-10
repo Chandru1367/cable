@@ -87,6 +87,7 @@ app.get('/api/customers', async (req, res) => {
 app.post('/api/customers', async (req, res) => {
   try {
     const payload = req.body || {};
+    console.log('POST /api/customers payload:', payload, 'usingMongo:', usingMongo);
     if (!payload.name) return res.status(400).json({ error: 'Missing name' });
     if (usingMongo && CustomerModel) {
       const doc = await CustomerModel.create(payload);
@@ -128,6 +129,7 @@ app.get('/api/payments', async (req, res) => {
 app.post('/api/payments', async (req, res) => {
   try {
     const payload = req.body || {};
+    console.log('POST /api/payments payload:', payload, 'usingMongo:', usingMongo);
     if (!payload.customerId || typeof payload.amount !== 'number') {
       return res.status(400).json({ error: 'Missing customerId or amount (number expected)' });
     }
