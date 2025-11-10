@@ -1,0 +1,19 @@
+{
+  "customers": [
+    {
+      "id": "CUST000001",
+      "name": "d d",
+      "phone": "d",
+      "stbNumber": "d",
+      "amount": 22,
+      "renewDate": "2025-11-10",
+      "status": "active",
+      "createdAt": "2025-11-10T16:30:00.678Z"
+    }
+  ],
+  "payments": [],
+  "expenses": [],
+  "invoices": [],
+  "nextCustomerId": 2,
+  "nextInvoiceId": 1
+}

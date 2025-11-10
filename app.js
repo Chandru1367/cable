@@ -2128,6 +2128,8 @@ function initializeApp() {
     initSMSManagement();
     initLogout();
     initSyncButton();
+    // Ensure automatic server sync is checked/enabled
+    checkServerAndEnableSync();
     updateCurrentDate();
     updateDashboard();
     updateOnlinePayments();
@@ -2177,35 +2179,92 @@ async function syncFromServer() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-    await syncFromServer();
-    checkAuthentication();
+// Check whether backend is reachable, enable sync and push local data automatically
+async function checkServerAndEnableSync() {
+    try {
+        // Quick status check
+        const res = await fetch('/api/status', { cache: 'no-store' });
+        if (res.ok) {
+            if (typeof localStorage !== 'undefined' && localStorage.getItem('syncWithServer') !== 'true') {
+                localStorage.setItem('syncWithServer', 'true');
+            }
+
+            // Try to push any existing local data to server
+            try {
+                if (typeof pushLocalToServer === 'function') {
+                    await pushLocalToServer();
+                    console.log('Local data pushed to server.');
+                }
+            } catch (err) {
+                console.warn('pushLocalToServer failed:', err);
+            }
+
+            // Fetch fresh data from server to replace local store
+            try {
+                await syncFromServer();
+            } catch (err) {
+                console.warn('syncFromServer after push failed:', err);
+            }
+        } else {
+            console.warn('Server status endpoint returned non-OK');
+        }
+    } catch (err) {
+        // Server unreachable — will retry later
+        console.log('Server not reachable for auto-sync:', err);
+    }
+}
+
+// When browser goes online, try enabling sync
+window.addEventListener('online', () => {
+    checkServerAndEnableSync().catch(() => {});
 });
 
-// --- Sync UI & functionality: push local customers/payments to server ---
+// Periodically try to detect server if sync not enabled
+setInterval(() => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('syncWithServer') !== 'true') {
+        checkServerAndEnableSync().catch(() => {});
+    }
+}, 30000);
+
+// Re-introduce the Sync button UI handler so users can manually push local data
 function initSyncButton() {
     const btn = document.getElementById('sync-btn');
     if (!btn) return;
     btn.addEventListener('click', async () => {
         if (!confirm('This will push your local customers and payments to the server. Continue?')) return;
         btn.disabled = true;
-        btn.textContent = 'Syncing...';
+        const originalHTML = btn.innerHTML;
         try {
-            await pushLocalToServer((progress) => {
-                // optional: could update UI with progress
-                console.log('sync progress', progress);
-            });
-            alert('Sync complete. Reload other devices (enable sync there) to view server data.');
+            btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i><span class="logout-text">Syncing...</span>';
+            if (typeof pushLocalToServer === 'function') {
+                const result = await pushLocalToServer((progress) => {
+                    // Optional: we could use `progress` to update UI later
+                    console.log('sync progress', progress);
+                });
+                console.log('pushLocalToServer result', result);
+                alert('Sync complete. Server now has your data.');
+            } else {
+                alert('Sync function not available.');
+            }
         } catch (err) {
             console.error('Sync failed', err);
             alert('Sync failed. See console for details.');
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i><span class="logout-text">Sync</span>';
+            btn.innerHTML = originalHTML || '<i class="fas fa-cloud-upload-alt"></i><span class="logout-text">Sync</span>';
         }
     });
 }
 
+document.addEventListener('DOMContentLoaded', async () => {
+    // Try to detect server and enable automatic sync if available
+    await checkServerAndEnableSync();
+    // If server sync enabled, pull latest data from server
+    await syncFromServer();
+    checkAuthentication();
+});
+
+// --- Sync functionality: push local customers/payments to server ---
 async function pushLocalToServer(progressCb) {
     // Ensure we have a dataStore
     if (!dataStore) await initDatabase();
