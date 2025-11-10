@@ -464,11 +464,13 @@ function initCustomerManagement() {
             status: document.getElementById('customer-status').value
         };
 
-        if (editingCustomerId) {
-            updateCustomer(editingCustomerId, customerData);
-        } else {
-            addCustomer(customerData);
-        }
+        (async () => {
+            if (editingCustomerId) {
+                updateCustomer(editingCustomerId, customerData);
+            } else {
+                await addCustomer(customerData);
+            }
+        })();
 
         modal.classList.remove('active');
         form.reset();
@@ -507,15 +509,40 @@ function initCustomerManagement() {
 }
 
 function addCustomer(customerData) {
-    const customer = {
-        id: generateCustomerId(),
-        ...customerData,
-        createdAt: new Date().toISOString()
-    };
-    dataStore.customers.push(customer);
-    dataStore.saveCustomers();
-    renderCustomers();
-    updateDashboard();
+    return (async () => {
+        try {
+            if (localStorage.getItem('syncWithServer') === 'true') {
+                const res = await fetch('/api/customers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(customerData)
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    const customer = json.customer;
+                    dataStore.customers.push(customer);
+                    dataStore.saveCustomers();
+                    renderCustomers();
+                    updateDashboard();
+                    return customer;
+                }
+                console.warn('Server rejected create customer; falling back to local store');
+            }
+        } catch (err) {
+            console.warn('Failed to create customer on server, using local store', err);
+        }
+
+        const customer = {
+            id: generateCustomerId(),
+            ...customerData,
+            createdAt: new Date().toISOString()
+        };
+        dataStore.customers.push(customer);
+        dataStore.saveCustomers();
+        renderCustomers();
+        updateDashboard();
+        return customer;
+    })();
 }
 
 function updateCustomer(id, customerData) {
@@ -694,11 +721,13 @@ function initPaymentManagement() {
             transactionId: document.getElementById('payment-transaction-id').value || null
         };
 
-        if (editingPaymentId) {
-            updatePayment(editingPaymentId, paymentData);
-        } else {
-            addPayment(paymentData);
-        }
+        (async () => {
+            if (editingPaymentId) {
+                updatePayment(editingPaymentId, paymentData);
+            } else {
+                await addPayment(paymentData);
+            }
+        })();
 
         modal.classList.remove('active');
         form.reset();
@@ -758,36 +787,70 @@ function populateCustomerDropdown() {
 }
 
 function addPayment(paymentData) {
-    const customer = dataStore.customers.find(c => c.id === paymentData.customerId);
-    if (!customer) return;
+    return (async () => {
+        const customer = dataStore.customers.find(c => c.id === paymentData.customerId);
+        if (!customer) return;
 
-    // Calculate balance before payment
-    const balanceBefore = calculateCustomerBalance(paymentData.customerId).balance;
-    
-    // Get month from payment date
-    const paymentDate = new Date(paymentData.date);
-    const paymentMonth = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
-    
-    const payment = {
-        id: `PAY${Date.now()}`,
-        ...paymentData,
-        month: paymentMonth,
-        balanceBefore: balanceBefore,
-        balanceAfter: Math.max(0, balanceBefore - paymentData.amount),
-        createdAt: new Date().toISOString()
-    };
-    
-    dataStore.payments.push(payment);
-    dataStore.savePayments();
-    renderPayments();
-    updateDashboard();
-    updateOnlinePayments();
-    renderCustomers(); // Update customer balances
-    
-    // Update history if on history page
-    if (document.getElementById('history-page')?.classList.contains('active')) {
-        renderHistory();
-    }
+        // Calculate balance before payment
+        const balanceBefore = calculateCustomerBalance(paymentData.customerId).balance;
+        // Get month from payment date
+        const paymentDate = new Date(paymentData.date);
+        const paymentMonth = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+
+        // If sync enabled, try posting to server
+        try {
+            if (localStorage.getItem('syncWithServer') === 'true') {
+                const res = await fetch('/api/payments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(paymentData)
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    const payment = json.payment;
+                    // Ensure month and balances exist
+                    payment.month = payment.month || paymentMonth;
+                    payment.balanceBefore = balanceBefore;
+                    payment.balanceAfter = Math.max(0, balanceBefore - payment.amount);
+                    dataStore.payments.push(payment);
+                    dataStore.savePayments();
+                    renderPayments();
+                    updateDashboard();
+                    updateOnlinePayments();
+                    renderCustomers();
+                    if (document.getElementById('history-page')?.classList.contains('active')) {
+                        renderHistory();
+                    }
+                    return payment;
+                }
+                console.warn('Server rejected payment; falling back to local store');
+            }
+        } catch (err) {
+            console.warn('Failed to create payment on server, using local store', err);
+        }
+
+        const payment = {
+            id: `PAY${Date.now()}`,
+            ...paymentData,
+            month: paymentMonth,
+            balanceBefore: balanceBefore,
+            balanceAfter: Math.max(0, balanceBefore - paymentData.amount),
+            createdAt: new Date().toISOString()
+        };
+
+        dataStore.payments.push(payment);
+        dataStore.savePayments();
+        renderPayments();
+        updateDashboard();
+        updateOnlinePayments();
+        renderCustomers(); // Update customer balances
+
+        // Update history if on history page
+        if (document.getElementById('history-page')?.classList.contains('active')) {
+            renderHistory();
+        }
+        return payment;
+    })();
 }
 
 function updatePayment(id, paymentData) {

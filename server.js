@@ -1,4 +1,5 @@
 const path = require('path');
+const os = require('os');
 const express = require('express');
 const cors = require('cors');
 
@@ -92,6 +93,29 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+// Print helpful network info and listen on all interfaces so other devices can connect
+function getLocalIPv4Addresses() {
+  const nets = os.networkInterfaces();
+  const results = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+      if (net.family === 'IPv4' && !net.internal) {
+        results.push(net.address);
+      }
+    }
+  }
+  return results;
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on port ${PORT}`);
+  const addresses = getLocalIPv4Addresses();
+  if (addresses.length) {
+    console.log('Accessible on your local network at:');
+    addresses.forEach(addr => console.log(`  http://${addr}:${PORT}/`));
+  } else {
+    console.log('No non-internal IPv4 addresses found. Try http://localhost:%s/', PORT);
+  }
+  console.log('If you want access from other networks, set up router port-forwarding or use a tunnel (ngrok).');
 });
